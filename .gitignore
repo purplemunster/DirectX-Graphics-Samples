@@ -6,6 +6,7 @@
 /Libraries/D3D12RaytracingFallback/src/FallbackLayerUnitTests/x64/
 /Packages
 
+**/src/x64
 **/bin/x64
 **/obj/x64
 **/src/packages
@@ -19,3 +20,4 @@
 
 *.vcxproj.user
 *.opendb
+*.ini
