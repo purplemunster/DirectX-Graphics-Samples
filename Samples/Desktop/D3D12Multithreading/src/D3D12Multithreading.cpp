@@ -242,7 +242,7 @@ void D3D12Multithreading::LoadAssets()
         ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
 
         CD3DX12_ROOT_PARAMETER1 rootParameters[3];
-        rootParameters[0].InitAsConstants(16, 0);
+        rootParameters[0].InitAsConstants(36, 0);
         rootParameters[1].InitAsShaderResourceView(0);
         rootParameters[2].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
 
@@ -1092,17 +1092,25 @@ void D3D12Multithreading::BeginFrame()
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList5> commandList5;
     if (SUCCEEDED(m_pCurrentFrameResource->m_commandLists[CommandListPre]->QueryInterface(IID_PPV_ARGS(&commandList5))))
     {
-        DirectX::XMFLOAT4X4 view, projection;
-        m_camera.Get3DViewProjMatrices(&view, &projection, 90.0f, m_viewport.Width, m_viewport.Height);
-
-        auto mCameraViewProj = XMMatrixMultiply(XMLoadFloat4x4(&view), XMLoadFloat4x4(&projection));
-        auto mInverseCameraViewProj = XMMatrixInverse(nullptr, mCameraViewProj);
-
         ID3D12DescriptorHeap* ppHeaps[] = { m_cbvSrvHeapCs.Get(), m_samplerHeap.Get() };
         commandList5->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
 
         m_raytracingStateObject->Bind(commandList5);
-        commandList5->SetComputeRoot32BitConstants(0, 16, &mInverseCameraViewProj, 0);
+
+        struct {
+            DirectX::XMFLOAT4 cameraPosition;
+            DirectX::XMMATRIX projectionToWorld;
+            DirectX::XMMATRIX cameraViewProjInverse;
+        } constants;
+
+        XMStoreFloat4(&constants.cameraPosition, m_camera.mEye);
+
+        XMMATRIX view = XMMatrixLookAtRH(m_camera.mEye, m_camera.mAt, m_camera.mUp);
+        XMMATRIX proj = XMMatrixPerspectiveFovRH(XMConvertToRadians(90.0f), m_aspectRatio, 0.01f, 125.0f);
+        XMMATRIX viewProj = view * proj;
+        constants.projectionToWorld = XMMatrixTranspose(XMMatrixInverse(nullptr, viewProj));
+        commandList5->SetComputeRoot32BitConstants(0, 36, &constants, 0);
+
         commandList5->SetComputeRootShaderResourceView(1, m_tlas.GetViewDesc()->RaytracingAccelerationStructure.Location);
         commandList5->SetComputeRootDescriptorTable(2, m_cbvSrvHeapCs->GetGPUDescriptorHandleForHeapStart());
 

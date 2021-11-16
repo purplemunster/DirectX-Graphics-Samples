@@ -1,7 +1,9 @@
 //=====================================================================================================================
 struct GlobalConstants
 {
-    float4x4 cameraViewProjInverse;
+    float4 cameraPosition;
+    matrix projectionToWorld;
+    matrix cameraViewProjInverse;
 };
 
 //=====================================================================================================================
@@ -16,19 +18,24 @@ RWTexture2D<float4>             Output   : register(u0);
 ConstantBuffer<GlobalConstants> GlobalCB : register(b0, space0);
 
 //=====================================================================================================================
-RayDesc GenerateRayDirection(float2 clipSpace)
+// Generate a ray in world space for a camera pixel corresponding to an index from the dispatched 2D grid.
+inline RayDesc GenerateCameraRay(uint2 index, in float3 cameraPosition, in float4x4 projectionToWorld)
 {
-    // R
-    float4 d0 = mul(GlobalCB.cameraViewProjInverse, float4(clipSpace, 0, 1));
-    d0.xyz /= d0.w;
-    float4 d1 = mul(GlobalCB.cameraViewProjInverse, float4(clipSpace, 1, 1));
-    d1.xyz /= d1.w;
+    float2 xy = index + 0.5f; // center in the middle of the pixel.
+    float2 screenPos = xy / DispatchRaysDimensions().xy * 2.0 - 1.0;
+
+    // Invert Y for DirectX-style coordinates.
+    screenPos.y = -screenPos.y;
+
+    // Unproject the pixel coordinate into a world positon.
+    float4 world = mul(float4(screenPos, 0, 1), projectionToWorld);
+    world.xyz /= world.w;
 
     RayDesc ray;
+    ray.Origin    = cameraPosition;
+    ray.Direction = normalize(world.xyz - ray.Origin);
     ray.TMin      = 1.0e-4f;
     ray.TMax      = 1.0e+38f;
-    ray.Origin    = d0.xyz;
-    ray.Direction = normalize((d1 - d0).xyz);
 
     return ray;
 }
@@ -39,14 +46,11 @@ void PrimaryRayGen()
 {
     RayPayload payload = (RayPayload)(0);
 
-    uint2 offset = DispatchRaysIndex().xy;
-    uint2 size = DispatchRaysDimensions().xy;
-
     // Screen position for the ray
-    float2 fragCoord = (offset.xy + 0.5f) / size.xy;
+    float2 fragCoord = (DispatchRaysIndex().xy + 0.5f) / DispatchRaysDimensions().xy;
     float2 clipSpace = float2(2 * fragCoord.x - 1, 1 - 2 * fragCoord.y);
 
-    RayDesc ray = GenerateRayDirection(clipSpace);
+    RayDesc ray = GenerateCameraRay(DispatchRaysIndex().xy, GlobalCB.cameraPosition.xyz, GlobalCB.projectionToWorld);
 
     const uint instanceInclusionMask = 0xff;
     const uint rayContributionToHitGroupIndex = 0;
@@ -65,7 +69,7 @@ void PrimaryRayGen()
 //=====================================================================================================================
 float3 GetDebugHitColor()
 {
-    uint seed = 7;// InstanceIndex() + PrimitiveIndex();
+    uint seed = InstanceIndex() + PrimitiveIndex();
 
     float cr = (((seed + 23) % 11) + 1) / 11.f;
     float cg = (((seed + 16) % 12) + 1) / 12.f;
@@ -78,7 +82,7 @@ float3 GetDebugHitColor()
 [shader("miss")]
 void Miss(inout RayPayload payload)
 {
-    const float3 backgroundColor = float3(0.501960814f, 0.000000000f, 0.501960814f);
+    const float3 backgroundColor = float3(0, 0, 0);// float3(0.501960814f, 0.000000000f, 0.501960814f);
     Output[DispatchRaysIndex().xy] = float4(backgroundColor, 1.0f);
 }
 
@@ -86,5 +90,5 @@ void Miss(inout RayPayload payload)
 [shader("closesthit")]
 void ClosestHitNoMaterials(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
-    Output[DispatchRaysIndex().xy] = float4(GetDebugHitColor(), 1.0);
+    Output[DispatchRaysIndex().xy] = float4(GetDebugHitColor() * attr.barycentrics.xy, 1.0, 1.0);
 }
