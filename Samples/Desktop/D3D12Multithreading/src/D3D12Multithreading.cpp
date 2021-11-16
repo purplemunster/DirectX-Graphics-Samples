@@ -13,6 +13,10 @@
 #include "D3D12Multithreading.h"
 #include "FrameResource.h"
 
+#include "imgui.h"
+#include "backends/imgui_impl_dx12.h"
+#include "backends/imgui_impl_win32.h"
+
 D3D12Multithreading* D3D12Multithreading::s_app = nullptr;
 
 D3D12Multithreading::D3D12Multithreading(UINT width, UINT height, std::wstring name) :
@@ -137,7 +141,7 @@ void D3D12Multithreading::LoadPipeline()
         ThrowIfFailed(m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)));
 
         // Describe and create a depth stencil view (DSV) descriptor heap.
-        // Each frame has its own depth stencils (to write shadows onto) 
+        // Each frame has its own depth stencils (to write shadows onto)
         // and then there is one for the scene itself.
         D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
         dsvHeapDesc.NumDescriptors = 1 + FrameCount * 1;
@@ -145,10 +149,10 @@ void D3D12Multithreading::LoadPipeline()
         dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
         ThrowIfFailed(m_device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvHeap)));
 
-        // Describe and create a shader resource view (SRV) and constant 
-        // buffer view (CBV) descriptor heap.  Heap layout: null views, 
-        // object diffuse + normal textures views, frame 1's shadow buffer, 
-        // frame 1's 2x constant buffer, frame 2's shadow buffer, frame 2's 
+        // Describe and create a shader resource view (SRV) and constant
+        // buffer view (CBV) descriptor heap.  Heap layout: null views,
+        // object diffuse + normal textures views, frame 1's shadow buffer,
+        // frame 1's 2x constant buffer, frame 2's shadow buffer, frame 2's
         // 2x constant buffers, etc...
         const UINT nullSrvCount = 2;        // Null descriptors are needed for out of bounds behavior reads.
         const UINT cbvCount = FrameCount * 2;
@@ -172,6 +176,27 @@ void D3D12Multithreading::LoadPipeline()
     }
 
     ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocator)));
+
+    // Init GUI
+    D3D12_DESCRIPTOR_HEAP_DESC imguiHeapDesc = {};
+    imguiHeapDesc.NumDescriptors = 4096;
+    imguiHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    imguiHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    ThrowIfFailed(m_device->CreateDescriptorHeap(&imguiHeapDesc, IID_PPV_ARGS(&m_imguiDescriptorHeap)));
+    NAME_D3D12_OBJECT(m_imguiDescriptorHeap);
+
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableSetMousePos;
+
+    ImGui_ImplWin32_Init(Win32Application::GetHwnd());
+    ImGui_ImplDX12_Init(
+        m_device.Get(),
+        FrameCount,
+        swapChainDesc.Format,
+        m_imguiDescriptorHeap.Get(),
+        m_imguiDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
+        m_imguiDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 }
 
 // Load the sample assets.
@@ -286,12 +311,12 @@ void D3D12Multithreading::LoadAssets()
         CD3DX12_RESOURCE_DESC shadowTextureDesc(
             D3D12_RESOURCE_DIMENSION_TEXTURE2D,
             0,
-            static_cast<UINT>(m_viewport.Width), 
-            static_cast<UINT>(m_viewport.Height), 
+            static_cast<UINT>(m_viewport.Width),
+            static_cast<UINT>(m_viewport.Height),
             1,
             1,
             DXGI_FORMAT_D32_FLOAT,
-            1, 
+            1,
             0,
             D3D12_TEXTURE_LAYOUT_UNKNOWN,
             D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL | D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
@@ -341,7 +366,7 @@ void D3D12Multithreading::LoadAssets()
                 nullptr,
                 IID_PPV_ARGS(&m_vertexBufferUpload)));
 
-            // Copy data to the upload heap and then schedule a copy 
+            // Copy data to the upload heap and then schedule a copy
             // from the upload heap to the vertex buffer.
             D3D12_SUBRESOURCE_DATA vertexData = {};
             vertexData.pData = pAssetData + SampleAssets::VertexDataOffset;
@@ -383,7 +408,7 @@ void D3D12Multithreading::LoadAssets()
                 nullptr,
                 IID_PPV_ARGS(&m_indexBufferUpload)));
 
-            // Copy data to the upload heap and then schedule a copy 
+            // Copy data to the upload heap and then schedule a copy
             // from the upload heap to the index buffer.
             D3D12_SUBRESOURCE_DATA indexData = {};
             indexData.pData = pAssetData + SampleAssets::IndexDataOffset;
@@ -413,7 +438,7 @@ void D3D12Multithreading::LoadAssets()
         CD3DX12_CPU_DESCRIPTOR_HANDLE cbvSrvHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart());
 
         {
-            // Describe and create 2 null SRVs. Null descriptors are needed in order 
+            // Describe and create 2 null SRVs. Null descriptors are needed in order
             // to achieve the effect of an "unbound" resource.
             D3D12_SHADER_RESOURCE_VIEW_DESC nullSrvDesc = {};
             nullSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
@@ -440,12 +465,12 @@ void D3D12Multithreading::LoadAssets()
             CD3DX12_RESOURCE_DESC texDesc(
                 D3D12_RESOURCE_DIMENSION_TEXTURE2D,
                 0,
-                tex.Width, 
-                tex.Height, 
+                tex.Width,
+                tex.Height,
                 1,
                 static_cast<UINT16>(tex.MipLevels),
                 tex.Format,
-                1, 
+                1,
                 0,
                 D3D12_TEXTURE_LAYOUT_UNKNOWN,
                 D3D12_RESOURCE_FLAG_NONE);
@@ -508,7 +533,7 @@ void D3D12Multithreading::LoadAssets()
         // Get a handle to the start of the descriptor heap.
         CD3DX12_CPU_DESCRIPTOR_HANDLE samplerHandle(m_samplerHeap->GetCPUDescriptorHandleForHeapStart());
 
-        // Describe and create the wrapping sampler, which is used for 
+        // Describe and create the wrapping sampler, which is used for
         // sampling diffuse/normal maps.
         D3D12_SAMPLER_DESC wrapSamplerDesc = {};
         wrapSamplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -526,7 +551,7 @@ void D3D12Multithreading::LoadAssets()
         // Move the handle to the next slot in the descriptor heap.
         samplerHandle.Offset(samplerDescriptorSize);
 
-        // Describe and create the point clamping sampler, which is 
+        // Describe and create the point clamping sampler, which is
         // used for the shadow map.
         D3D12_SAMPLER_DESC clampSamplerDesc = {};
         clampSamplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
@@ -545,7 +570,7 @@ void D3D12Multithreading::LoadAssets()
     // Create lights.
     for (int i = 0; i < NumLights; i++)
     {
-        // Set up each of the light positions and directions (they all start 
+        // Set up each of the light positions and directions (they all start
         // in the same place).
         m_lights[i].position = { 0.0f, 15.0f, -30.0f, 1.0f };
         m_lights[i].direction = { 0.0, 0.0f, 1.0f, 0.0f };
@@ -573,6 +598,8 @@ void D3D12Multithreading::LoadAssets()
     m_currentFrameResourceIndex = 0;
     m_pCurrentFrameResource = m_frameResources[m_currentFrameResourceIndex];
 
+    // Create raytracing acceleration structures
+
     // Create synchronization objects and wait until assets have been uploaded to the GPU.
     {
         ThrowIfFailed(m_device->CreateFence(m_fenceValue, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
@@ -585,8 +612,8 @@ void D3D12Multithreading::LoadAssets()
             ThrowIfFailed(HRESULT_FROM_WIN32(GetLastError()));
         }
 
-        // Wait for the command list to execute; we are reusing the same command 
-        // list in our main loop but for now, we just want to wait for setup to 
+        // Wait for the command list to execute; we are reusing the same command
+        // list in our main loop but for now, we just want to wait for setup to
         // complete before continuing.
 
         // Signal and increment the fence value.
@@ -655,11 +682,13 @@ void D3D12Multithreading::LoadContexts()
 // Update frame-based values.
 void D3D12Multithreading::OnUpdate()
 {
+    ImGui_ImplWin32_NewFrame();
+
     m_timer.Tick(NULL);
 
     PIXSetMarker(m_commandQueue.Get(), 0, L"Getting last completed fence.");
 
-    // Get current GPU progress against submitted workload. Resources still scheduled 
+    // Get current GPU progress against submitted workload. Resources still scheduled
     // for GPU execution cannot be modified or else undefined behavior will result.
     const UINT64 lastCompletedFence = m_fence->GetCompletedValue();
 
@@ -740,8 +769,8 @@ void D3D12Multithreading::OnRender()
 
         WaitForMultipleObjects(NumContexts, m_workerFinishShadowPass, TRUE, INFINITE);
 
-        // You can execute command lists on any thread. Depending on the work 
-        // load, apps can choose between using ExecuteCommandLists on one thread 
+        // You can execute command lists on any thread. Depending on the work
+        // load, apps can choose between using ExecuteCommandLists on one thread
         // vs ExecuteCommandList from multiple threads.
         m_commandQueue->ExecuteCommandLists(NumContexts + 2, m_pCurrentFrameResource->m_batchSubmit); // Submit PRE, MID and shadows.
 
@@ -770,7 +799,7 @@ void D3D12Multithreading::OnRender()
 
         // Present and update the frame index for the next frame.
         PIXBeginEvent(m_commandQueue.Get(), 0, L"Presenting to screen");
-        ThrowIfFailed(m_swapChain->Present(1, 0));
+        ThrowIfFailed(m_swapChain->Present(m_vsync?1:0, 0));
         PIXEndEvent(m_commandQueue.Get());
         m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 
@@ -831,6 +860,11 @@ void D3D12Multithreading::WaitForGpu()
 
 void D3D12Multithreading::OnDestroy()
 {
+    // Shutdown
+    ImGui_ImplDX12_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
+
     // Ensure that the GPU is no longer referencing resources that are about to be
     // cleaned up by the destructor.
     {
@@ -935,6 +969,26 @@ void D3D12Multithreading::MidFrame()
 // Assemble the CommandListPost command list.
 void D3D12Multithreading::EndFrame()
 {
+    ImGui_ImplDX12_NewFrame();
+    ImGui::NewFrame();
+
+    char cpu[2048];
+    sprintf_s(cpu, "CPU: %.4f ms, %.1f fps", m_cpuTime / m_titleCount, 100.f / (m_cpuTime / m_titleCount));
+
+    const char* label = "Enable VSync";
+    ImGui::Checkbox(label, &m_vsync);
+    ImGui::Text(cpu);
+    ImGui::EndFrame();
+    ImGui::Render();
+    ID3D12DescriptorHeap* ppHeaps[] = { m_imguiDescriptorHeap.Get(), m_samplerHeap.Get() };
+    m_pCurrentFrameResource->m_commandLists[CommandListPost]->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
+    CD3DX12_CPU_DESCRIPTOR_HANDLE dsvHandle(m_dsvHeap->GetCPUDescriptorHandleForHeapStart());
+    m_pCurrentFrameResource->m_commandLists[CommandListPost]->OMSetRenderTargets(1, &rtvHandle, FALSE, &dsvHandle);
+
+    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), m_pCurrentFrameResource->m_commandLists[CommandListPost].Get());
+
     m_pCurrentFrameResource->Finish();
 
     // Indicate that the back buffer will now be used to present.
@@ -943,7 +997,7 @@ void D3D12Multithreading::EndFrame()
     ThrowIfFailed(m_pCurrentFrameResource->m_commandLists[CommandListPost]->Close());
 }
 
-// Worker thread body. workerIndex is an integer from 0 to NumContexts 
+// Worker thread body. workerIndex is an integer from 0 to NumContexts
 // describing the worker's thread index.
 void D3D12Multithreading::WorkerThread(int threadIndex)
 {
@@ -972,8 +1026,8 @@ void D3D12Multithreading::WorkerThread(int threadIndex)
         // Set null SRVs for the diffuse/normal textures.
         pShadowCommandList->SetGraphicsRootDescriptorTable(0, m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart());
 
-        // Distribute objects over threads by drawing only 1/NumContexts 
-        // objects per worker (i.e. every object such that objectnum % 
+        // Distribute objects over threads by drawing only 1/NumContexts
+        // objects per worker (i.e. every object such that objectnum %
         // NumContexts == threadIndex).
         PIXBeginEvent(pShadowCommandList, 0, L"Worker drawing shadow pass...");
 
@@ -995,9 +1049,9 @@ void D3D12Multithreading::WorkerThread(int threadIndex)
 
         //
         // Scene pass
-        // 
+        //
 
-        // Populate the command list.  These can only be sent after the shadow 
+        // Populate the command list.  These can only be sent after the shadow
         // passes for this frame have been submitted.
         SetCommonPipelineState(pSceneCommandList);
         CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
@@ -1025,7 +1079,7 @@ void D3D12Multithreading::WorkerThread(int threadIndex)
 
 #if !SINGLETHREADED
         // Tell main thread that we are done.
-        SetEvent(m_workerFinishedRenderFrame[threadIndex]); 
+        SetEvent(m_workerFinishedRenderFrame[threadIndex]);
     }
 #endif
 }
@@ -1045,12 +1099,12 @@ void D3D12Multithreading::SetCommonPipelineState(ID3D12GraphicsCommandList* pCom
     pCommandList->SetGraphicsRootDescriptorTable(3, m_samplerHeap->GetGPUDescriptorHandleForHeapStart());
     pCommandList->OMSetStencilRef(0);
 
-    // Render targets and depth stencil are set elsewhere because the 
+    // Render targets and depth stencil are set elsewhere because the
     // depth stencil depends on the frame resource being used.
 
-    // Constant buffers are set elsewhere because they depend on the 
+    // Constant buffers are set elsewhere because they depend on the
     // frame resource being used.
 
-    // SRVs are set elsewhere because they change based on the object 
+    // SRVs are set elsewhere because they change based on the object
     // being drawn.
 }

@@ -121,7 +121,7 @@ private:
     UINT64 m_fenceValue;
 
     // Singleton object so that worker threads can share members.
-    static D3D12Multithreading* s_app; 
+    static D3D12Multithreading* s_app;
 
     // Frame resources.
     FrameResource* m_frameResources[FrameCount];
@@ -146,4 +146,8 @@ private:
     void BeginFrame();
     void MidFrame();
     void EndFrame();
+
+    bool m_vsync = true;
+
+    ComPtr<ID3D12DescriptorHeap> m_imguiDescriptorHeap;
 };
