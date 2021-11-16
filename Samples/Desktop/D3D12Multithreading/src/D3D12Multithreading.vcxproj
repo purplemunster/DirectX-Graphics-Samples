@@ -110,6 +110,9 @@
     </CustomBuild>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="AccelerationStructure.h" />
+    <ClInclude Include="ShaderRecordTable.h" />
+    <ClInclude Include="StateObject.h" />
     <ClInclude Include="Win32Application.h" />
     <ClInclude Include="Camera.h" />
     <ClInclude Include="D3D12Multithreading.h" />
@@ -122,6 +125,9 @@
     <ClInclude Include="stdafx.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="AccelerationStructure.cpp" />
+    <ClCompile Include="ShaderRecordTable.cpp" />
+    <ClCompile Include="StateObject.cpp" />
     <ClCompile Include="Win32Application.cpp" />
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="D3D12Multithreading.cpp" />
@@ -147,6 +153,14 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="RayTracingLibrary.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Library</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">6.3</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Library</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">6.3</ShaderModel>
+    </FxCompile>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

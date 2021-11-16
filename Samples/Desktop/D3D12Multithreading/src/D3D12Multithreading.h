@@ -15,6 +15,8 @@
 #include "Camera.h"
 #include "StepTimer.h"
 #include "SquidRoom.h"
+#include "AccelerationStructure.h"
+#include "ShaderRecordTable.h"
 
 using namespace DirectX;
 
@@ -147,7 +149,17 @@ private:
     void MidFrame();
     void EndFrame();
 
+    AccelerationStructure               m_tlas;
+    std::unique_ptr<StateObject>        m_raytracingStateObject;
+    std::unique_ptr<ShaderRecordTable>  m_raygenTable;
+    std::unique_ptr<ShaderRecordTable>  m_missTable;
+    std::unique_ptr<ShaderRecordTable>  m_hitgroupTable;
+    ComPtr<ID3D12Resource>              m_raytracingTarget;
+    ComPtr<ID3D12RootSignature>         m_rootSignatureCs;
+    ComPtr<ID3D12DescriptorHeap>        m_cbvSrvHeapCs;
+
     bool m_vsync = true;
+    bool m_raytrace = false;
 
     ComPtr<ID3D12DescriptorHeap> m_imguiDescriptorHeap;
 };

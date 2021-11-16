@@ -251,3 +251,162 @@ void ResetUniquePtrArray(T* uniquePtrArray)
         i.reset();
     }
 }
+
+//=====================================================================================================================
+const D3D12_HEAP_PROPERTIES kDefaultHeap =
+{
+    D3D12_HEAP_TYPE_DEFAULT,
+    D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+    D3D12_MEMORY_POOL_UNKNOWN,
+    0,
+    0,
+};
+
+const D3D12_HEAP_PROPERTIES kUploadHeap =
+{
+    D3D12_HEAP_TYPE_UPLOAD,
+    D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+    D3D12_MEMORY_POOL_UNKNOWN,
+    0,
+    0,
+};
+
+const D3D12_HEAP_PROPERTIES kReadbackHeap =
+{
+    D3D12_HEAP_TYPE_READBACK,
+    D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+    D3D12_MEMORY_POOL_UNKNOWN,
+    0,
+    0,
+};
+
+const D3D12_HEAP_PROPERTIES kMapDefaultHeap =
+{
+    D3D12_HEAP_TYPE_CUSTOM,
+    D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE,
+    D3D12_MEMORY_POOL_L0,
+    0,
+    0,
+};
+
+//=====================================================================================================================
+static ID3D12Resource* CreateBuffer(
+    ID3D12Device* pDevice, size_t size, D3D12_RESOURCE_STATES initialState, const void* pBufferData, D3D12_RESOURCE_FLAGS flags)
+{
+    D3D12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(size, flags);
+
+    // Only UAV flag is allowed for acceleration structures
+    if ((initialState & D3D12_RESOURCE_STATE_UNORDERED_ACCESS) ||
+        (initialState & D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE))
+    {
+        bufferDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    }
+
+    const D3D12_HEAP_PROPERTIES* pHeapProperties = &kDefaultHeap;
+    if (pBufferData)
+    {
+        pHeapProperties = &kUploadHeap;
+    }
+
+    ID3D12Resource* buffer = nullptr;
+    ThrowIfFailed(pDevice->CreateCommittedResource(pHeapProperties,
+                                               D3D12_HEAP_FLAG_NONE,
+                                               &bufferDesc,
+                                               initialState,
+                                               nullptr,
+                                               IID_PPV_ARGS(&buffer)));
+
+    if (pBufferData)
+    {
+        const CD3DX12_RANGE range(0, size);
+
+        void* pData = nullptr;
+        ThrowIfFailed(buffer->Map(0, &range, &pData));
+
+        memcpy(pData, pBufferData, size);
+        buffer->Unmap(0, &range);
+    }
+
+    return buffer;
+}
+
+//=====================================================================================================================
+static ID3D12Resource* CreateUploadBuffer(
+    ID3D12Device* pDevice, size_t size)
+{
+    D3D12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(size);
+
+    ID3D12Resource* buffer = nullptr;
+    ThrowIfFailed(pDevice->CreateCommittedResource(&kUploadHeap,
+                                                    D3D12_HEAP_FLAG_NONE,
+                                                    &bufferDesc,
+                                                    D3D12_RESOURCE_STATE_GENERIC_READ,
+                                                    nullptr,
+                                                    IID_PPV_ARGS(&buffer)));
+
+    return buffer;
+}
+
+//=====================================================================================================================
+static ID3D12Resource* CreateReadbackBuffer(
+    ID3D12Device* pDevice, size_t size)
+{
+    D3D12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(size);
+
+    ID3D12Resource* buffer = nullptr;
+    ThrowIfFailed(pDevice->CreateCommittedResource(&kReadbackHeap,
+                                                    D3D12_HEAP_FLAG_NONE,
+                                                    &bufferDesc,
+                                                    D3D12_RESOURCE_STATE_COPY_DEST,
+                                                    nullptr,
+                                                    IID_PPV_ARGS(&buffer)));
+
+    return buffer;
+}
+
+//=====================================================================================================================
+static ID3D12Resource* CreateMapDefaultBuffer(
+    ID3D12Device* pDevice, size_t size, D3D12_RESOURCE_STATES initialState)
+{
+    D3D12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(size);
+
+    if ((initialState & D3D12_RESOURCE_STATE_UNORDERED_ACCESS) ||
+        (initialState & D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE))
+    {
+        bufferDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    }
+
+    ID3D12Resource* buffer = nullptr;
+    ThrowIfFailed(pDevice->CreateCommittedResource(&kMapDefaultHeap,
+                                                    D3D12_HEAP_FLAG_NONE,
+                                                    &bufferDesc,
+                                                    initialState,
+                                                    nullptr,
+                                                    IID_PPV_ARGS(&buffer)));
+
+    return buffer;
+}
+
+//=====================================================================================================================
+static ID3D12Resource* CreateTexture2D(
+    ID3D12Device*         pDevice,
+    uint32_t              width,
+    uint32_t              height,
+    DXGI_FORMAT           format,
+    D3D12_RESOURCE_FLAGS  flags,
+    D3D12_RESOURCE_STATES initialState,
+    uint16_t              mips,
+    uint16_t              arraySize)
+{
+    D3D12_RESOURCE_DESC texDesc =
+        CD3DX12_RESOURCE_DESC::Tex2D(format, width, height, arraySize, mips, 1, 0, flags);
+
+    ID3D12Resource* texture = nullptr;
+    ThrowIfFailed(pDevice->CreateCommittedResource(&kDefaultHeap,
+                                                    D3D12_HEAP_FLAG_NONE,
+                                                    &texDesc,
+                                                    initialState,
+                                                    nullptr,
+                                                    IID_PPV_ARGS(&texture)));
+    return texture;
+}
