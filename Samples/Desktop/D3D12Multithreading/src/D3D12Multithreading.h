@@ -159,7 +159,6 @@ private:
     ComPtr<ID3D12RootSignature>         m_rootSignatureLocal;
     ComPtr<ID3D12DescriptorHeap>        m_cbvSrvHeapCs;
 
-    ComPtr<ID3D12Resource>              m_debug;
     bool m_vsync = true;
     bool m_raytrace = false;
     bool m_enableShadows = true;

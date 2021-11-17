@@ -276,10 +276,9 @@ void D3D12Multithreading::LoadAssets()
         CD3DX12_DESCRIPTOR_RANGE1 range;
         range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0, 1);
 
-        CD3DX12_ROOT_PARAMETER1 rootParameters[3];
+        CD3DX12_ROOT_PARAMETER1 rootParameters[2];
         rootParameters[0].InitAsDescriptorTable(1, &range);
         rootParameters[1].InitAsConstants(3, 0, 1);
-        rootParameters[2].InitAsUnorderedAccessView(99, 0);
 
         CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
         rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
@@ -652,7 +651,6 @@ void D3D12Multithreading::LoadAssets()
         UINT IndexStart;
         UINT VertexBase;
         UINT GeometryIndex;
-        UINT64 UAV;
     };
 #pragma pack(pop)
 
@@ -679,12 +677,6 @@ void D3D12Multithreading::LoadAssets()
     D3D12_GPU_DESCRIPTOR_HANDLE cbvSrvHeapStart = m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart();
     const UINT cbvSrvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-    // create debug Uav
-    m_debug = CreateMapDefaultBuffer(m_device.Get(), 4096, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-
-    void* pMappedDebug = nullptr;
-    m_debug->Map(0, nullptr, &pMappedDebug);
-
     for (int i = 0; i < _countof(SampleAssets::Draws); ++i)
     {
         SampleAssets::DrawParameters drawArgs = SampleAssets::Draws[i];
@@ -701,7 +693,6 @@ void D3D12Multithreading::LoadAssets()
         record.constants.IndexStart = drawArgs.IndexStart;
         record.constants.VertexBase = drawArgs.VertexBase;
         record.constants.GeometryIndex = i;
-        record.constants.UAV = m_debug->GetGPUVirtualAddress();
 
         CD3DX12_GPU_DESCRIPTOR_HANDLE tableBase(cbvSrvHeapStart, 2 + drawArgs.DiffuseTextureIndex, cbvSrvDescriptorSize);
         record.constants.DescriptorTable = tableBase.ptr;

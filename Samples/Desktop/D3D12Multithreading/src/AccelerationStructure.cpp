@@ -51,8 +51,12 @@ void AccelerationStructure::AddGeometry(
 
     blas.result.resource->Map(0, 0, &blas.result.pMappedCpuPtr);
 #else
-    blas.result.resource = dx12::CreateBuffer(
-        blasBuildInfo.ResultDataMaxSizeInBytes, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
+    blas.result.resource = CreateBuffer(
+        m_device.Get(),
+        blasBuildInfo.ResultDataMaxSizeInBytes,
+        D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+        0,
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 #endif
 
     blas.resultSize  = blasBuildInfo.ResultDataMaxSizeInBytes;
@@ -70,11 +74,21 @@ void AccelerationStructure::AddGeometry(
     blas.scratch.resource = CreateMapDefaultBuffer(m_device.Get(), blas.scratchSize, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     blas.scratch.resource->Map(0, 0, &blas.scratch.pMappedCpuPtr);
 #else
-    blas.scratch.resource = dx12::CreateBuffer(blas.scratchSize, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    blas.scratch.resource = CreateBuffer(
+        m_device.Get(),
+        blas.scratchSize,
+        D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+        0,
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 
     if (blas.updateSize > 0)
     {
-        blas.update.resource = dx12::CreateBuffer(blas.updateSize, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        blas.update.resource = CreateBuffer(
+            m_device.Get(),
+            blas.updateSize,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            0,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
     }
 #endif
 
@@ -198,8 +212,12 @@ void AccelerationStructure::Build(
                                                           D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
     m_tlas.result.resource->Map(0, 0, &m_tlas.result.pMappedCpuPtr);
 #else
-    m_tlas.result.resource = dx12::CreateBuffer(tlasBuildInfo.ResultDataMaxSizeInBytes,
-                                                D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
+    m_tlas.result.resource = CreateBuffer(
+        m_device.Get(),
+        tlasBuildInfo.ResultDataMaxSizeInBytes,
+        D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+        0,
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 #endif
 
     struct TsData
@@ -445,8 +463,10 @@ void AccelerationStructure::PerformCompaction(
             compactedBuffers[i] = CreateMapDefaultBuffer(m_device.Get(), m_geometries[i].first.compactSize,
                 D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
 #else
-            compactedBuffers[i] = dx12::CreateBuffer(m_geometries[i].first.compactSize,
-                D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
+            compactedBuffers[i] = CreateBuffer(m_device.Get(), m_geometries[i].first.compactSize,
+                D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+                0,
+                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 #endif
 
             // Queue copy commands
@@ -490,8 +510,12 @@ void AccelerationStructure::PerformCompaction(
         compactedTlas = CreateMapDefaultBuffer(m_device.Get(), m_tlas.compactSize,
             D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
 #else
-        compactedTlas = dx12::CreateBuffer(m_tlas.compactSize,
-            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
+        compactedTlas = CreateBuffer(
+            m_device.Get(),
+            m_tlas.compactSize,
+            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+            0,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 #endif
         // Queue copy commands
         commandList4->CopyRaytracingAccelerationStructure(
