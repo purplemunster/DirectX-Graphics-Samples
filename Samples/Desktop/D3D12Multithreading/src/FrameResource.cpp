@@ -31,7 +31,7 @@ FrameResource::FrameResource(ID3D12Device* pDevice, ID3D12PipelineState* pPso, I
 
     for (UINT i = 0; i < NumContexts; i++)
     {
-        // Create command list allocators for worker threads. One alloc is 
+        // Create command list allocators for worker threads. One alloc is
         // for the shadow pass command list, and one is for the scene pass.
         ThrowIfFailed(pDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_shadowCommandAllocators[i])));
         ThrowIfFailed(pDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_sceneCommandAllocators[i])));
@@ -42,7 +42,7 @@ FrameResource::FrameResource(ID3D12Device* pDevice, ID3D12PipelineState* pPso, I
         NAME_D3D12_OBJECT_INDEXED(m_shadowCommandLists, i);
         NAME_D3D12_OBJECT_INDEXED(m_sceneCommandLists, i);
 
-        // Close these command lists; don't record into them for now. We will 
+        // Close these command lists; don't record into them for now. We will
         // reset them to a recording state when we start the render loop.
         ThrowIfFailed(m_shadowCommandLists[i]->Close());
         ThrowIfFailed(m_sceneCommandLists[i]->Close());
@@ -52,12 +52,12 @@ FrameResource::FrameResource(ID3D12Device* pDevice, ID3D12PipelineState* pPso, I
     CD3DX12_RESOURCE_DESC shadowTexDesc(
         D3D12_RESOURCE_DIMENSION_TEXTURE2D,
         0,
-        static_cast<UINT>(pViewport->Width), 
-        static_cast<UINT>(pViewport->Height), 
+        static_cast<UINT>(pViewport->Width),
+        static_cast<UINT>(pViewport->Height),
         1,
         1,
         DXGI_FORMAT_R32_TYPELESS,
-        1, 
+        1,
         0,
         D3D12_TEXTURE_LAYOUT_UNKNOWN,
         D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
@@ -77,12 +77,12 @@ FrameResource::FrameResource(ID3D12Device* pDevice, ID3D12PipelineState* pPso, I
 
     NAME_D3D12_OBJECT(m_shadowTexture);
 
-    // Get a handle to the start of the descriptor heap then offset 
+    // Get a handle to the start of the descriptor heap then offset
     // it based on the frame resource index.
     const UINT dsvDescriptorSize = pDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
     CD3DX12_CPU_DESCRIPTOR_HANDLE depthHandle(pDsvHeap->GetCPUDescriptorHandleForHeapStart(), 1 + frameResourceIndex, dsvDescriptorSize); // + 1 for the shadow map.
 
-    // Describe and create the shadow depth view and cache the CPU 
+    // Describe and create the shadow depth view and cache the CPU
     // descriptor handle.
     D3D12_DEPTH_STENCIL_VIEW_DESC depthStencilViewDesc = {};
     depthStencilViewDesc.Format = DXGI_FORMAT_D32_FLOAT;
@@ -91,8 +91,8 @@ FrameResource::FrameResource(ID3D12Device* pDevice, ID3D12PipelineState* pPso, I
     pDevice->CreateDepthStencilView(m_shadowTexture.Get(), &depthStencilViewDesc, depthHandle);
     m_shadowDepthView = depthHandle;
 
-    // Get a handle to the start of the descriptor heap then offset it 
-    // based on the existing textures and the frame resource index. Each 
+    // Get a handle to the start of the descriptor heap then offset it
+    // based on the existing textures and the frame resource index. Each
     // frame has 1 SRV (shadow tex) and 2 CBVs.
     const UINT nullSrvCount = 2;                                // Null descriptors at the start of the heap.
     const UINT textureCount = _countof(SampleAssets::Textures);    // Diffuse + normal textures near the start of the heap.  Ideally, track descriptor heap contents/offsets at a higher level.
@@ -103,9 +103,9 @@ FrameResource::FrameResource(ID3D12Device* pDevice, ID3D12PipelineState* pPso, I
     cbvSrvCpuHandle.Offset(nullSrvCount + textureCount + (frameResourceIndex * FrameCount), cbvSrvDescriptorSize);
     cbvSrvGpuHandle.Offset(nullSrvCount + textureCount + (frameResourceIndex * FrameCount), cbvSrvDescriptorSize);
 
-    // Describe and create a shader resource view (SRV) for the shadow depth 
-    // texture and cache the GPU descriptor handle. This SRV is for sampling 
-    // the shadow map from our shader. It uses the same texture that we use 
+    // Describe and create a shader resource view (SRV) for the shadow depth
+    // texture and cache the GPU descriptor handle. This SRV is for sampling
+    // the shadow map from our shader. It uses the same texture that we use
     // as a depth-stencil during the shadow pass.
     D3D12_SHADER_RESOURCE_VIEW_DESC shadowSrvDesc = {};
     shadowSrvDesc.Format = DXGI_FORMAT_R32_FLOAT;
@@ -146,7 +146,7 @@ FrameResource::FrameResource(ID3D12Device* pDevice, ID3D12PipelineState* pPso, I
     D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
     cbvDesc.SizeInBytes = constantBufferSize;
 
-    // Describe and create the shadow constant buffer view (CBV) and 
+    // Describe and create the shadow constant buffer view (CBV) and
     // cache the GPU descriptor handle.
     cbvDesc.BufferLocation = m_shadowConstantBuffer->GetGPUVirtualAddress();
     pDevice->CreateConstantBufferView(&cbvDesc, cbvSrvCpuHandle);
@@ -156,7 +156,7 @@ FrameResource::FrameResource(ID3D12Device* pDevice, ID3D12PipelineState* pPso, I
     cbvSrvCpuHandle.Offset(cbvSrvDescriptorSize);
     cbvSrvGpuHandle.Offset(cbvSrvDescriptorSize);
 
-    // Describe and create the scene constant buffer view (CBV) and 
+    // Describe and create the scene constant buffer view (CBV) and
     // cache the GPU descriptor handle.
     cbvDesc.BufferLocation = m_sceneConstantBuffer->GetGPUVirtualAddress();
     pDevice->CreateConstantBufferView(&cbvDesc, cbvSrvCpuHandle);
@@ -194,13 +194,13 @@ FrameResource::~FrameResource()
     m_shadowTexture = nullptr;
 }
 
-// Builds and writes constant buffers from scratch to the proper slots for 
+// Builds and writes constant buffers from scratch to the proper slots for
 // this frame resource.
-void FrameResource::WriteConstantBuffers(D3D12_VIEWPORT* pViewport, Camera* pSceneCamera, Camera lightCams[NumLights], LightState lights[NumLights])
+void FrameResource::WriteConstantBuffers(D3D12_VIEWPORT* pViewport, Camera* pSceneCamera, Camera lightCams[NumLights], LightState lights[NumLights], BOOL enableShadows)
 {
-    SceneConstantBuffer sceneConsts = {}; 
+    SceneConstantBuffer sceneConsts = {};
     SceneConstantBuffer shadowConsts = {};
-    
+
     // Scale down the world a bit.
     ::XMStoreFloat4x4(&sceneConsts.model, XMMatrixScaling(0.1f, 0.1f, 0.1f));
     ::XMStoreFloat4x4(&shadowConsts.model, XMMatrixScaling(0.1f, 0.1f, 0.1f));
@@ -221,7 +221,7 @@ void FrameResource::WriteConstantBuffers(D3D12_VIEWPORT* pViewport, Camera* pSce
     shadowConsts.sampleShadowMap = FALSE;
 
     // The scene pass samples the shadow map.
-    sceneConsts.sampleShadowMap = TRUE;
+    sceneConsts.sampleShadowMap = enableShadows;
 
     shadowConsts.ambientColor = sceneConsts.ambientColor = { 0.1f, 0.2f, 0.3f, 1.0f };
 
@@ -263,7 +263,7 @@ void FrameResource::Finish()
     m_commandLists[CommandListPost]->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_shadowTexture.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE));
 }
 
-// Sets up the descriptor tables for the worker command list to use 
+// Sets up the descriptor tables for the worker command list to use
 // resources provided by frame resource.
 void FrameResource::Bind(ID3D12GraphicsCommandList* pCommandList, BOOL scenePass, D3D12_CPU_DESCRIPTOR_HANDLE* pRtvHandle, D3D12_CPU_DESCRIPTOR_HANDLE* pDsvHandle)
 {
@@ -273,7 +273,7 @@ void FrameResource::Bind(ID3D12GraphicsCommandList* pCommandList, BOOL scenePass
         // with rendering to the render target enabled.
         pCommandList->SetGraphicsRootDescriptorTable(2, m_shadowDepthHandle);        // Set the shadow texture as an SRV.
         pCommandList->SetGraphicsRootDescriptorTable(1, m_sceneCbvHandle);
-        
+
         assert(pRtvHandle != nullptr);
         assert(pDsvHandle != nullptr);
 

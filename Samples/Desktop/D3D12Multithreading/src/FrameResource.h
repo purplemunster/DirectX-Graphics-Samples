@@ -57,5 +57,9 @@ public:
     void Init();
     void SwapBarriers();
     void Finish();
-    void WriteConstantBuffers(D3D12_VIEWPORT* pViewport, Camera* pSceneCamera, Camera lightCams[NumLights], LightState lights[NumLights]);
+    void WriteConstantBuffers(D3D12_VIEWPORT* pViewport, Camera* pSceneCamera, Camera lightCams[NumLights], LightState lights[NumLights], BOOL enableShadows);
+
+    D3D12_GPU_VIRTUAL_ADDRESS GetSceneCbvHandle() {
+        return m_sceneConstantBuffer->GetGPUVirtualAddress();
+    }
 };

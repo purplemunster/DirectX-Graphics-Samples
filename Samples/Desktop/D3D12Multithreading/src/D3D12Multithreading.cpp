@@ -241,19 +241,54 @@ void D3D12Multithreading::LoadAssets()
         CD3DX12_DESCRIPTOR_RANGE1 ranges[1]; // Perfomance TIP: Order from most frequent to least frequent.
         ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
 
-        CD3DX12_ROOT_PARAMETER1 rootParameters[3];
+        CD3DX12_ROOT_PARAMETER1 rootParameters[6];
         rootParameters[0].InitAsConstants(36, 0);
-        rootParameters[1].InitAsShaderResourceView(0);
-        rootParameters[2].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
+        rootParameters[1].InitAsConstantBufferView(1, 0);
+        rootParameters[2].InitAsShaderResourceView(0);
+        rootParameters[3].InitAsShaderResourceView(1);
+        rootParameters[4].InitAsShaderResourceView(2);
+        rootParameters[5].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
+
+        D3D12_STATIC_SAMPLER_DESC wrapSamplerDesc = {};
+        wrapSamplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        wrapSamplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        wrapSamplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        wrapSamplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        wrapSamplerDesc.MinLOD = 0;
+        wrapSamplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
+        wrapSamplerDesc.MipLODBias = 0.0f;
+        wrapSamplerDesc.MaxAnisotropy = 1;
+        wrapSamplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+        wrapSamplerDesc.BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
 
         CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
-        rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+        rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 1, &wrapSamplerDesc, D3D12_ROOT_SIGNATURE_FLAG_NONE);
 
         ComPtr<ID3DBlob> signature;
         ComPtr<ID3DBlob> error;
         ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &signature, &error));
         ThrowIfFailed(m_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_rootSignatureCs)));
         NAME_D3D12_OBJECT(m_rootSignatureCs);
+    }
+
+    // Create the local root signature.
+    {
+        CD3DX12_DESCRIPTOR_RANGE1 range;
+        range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0, 1);
+
+        CD3DX12_ROOT_PARAMETER1 rootParameters[3];
+        rootParameters[0].InitAsDescriptorTable(1, &range);
+        rootParameters[1].InitAsConstants(3, 0, 1);
+        rootParameters[2].InitAsUnorderedAccessView(99, 0);
+
+        CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
+        rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
+
+        ComPtr<ID3DBlob> signature;
+        ComPtr<ID3DBlob> error;
+        ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &signature, &error));
+        ThrowIfFailed(m_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_rootSignatureLocal)));
+        NAME_D3D12_OBJECT(m_rootSignatureLocal);
     }
 
     // Create the pipeline state, which includes loading shaders.
@@ -607,8 +642,27 @@ void D3D12Multithreading::LoadAssets()
     ThrowIfFailed(m_device->QueryInterface(IID_PPV_ARGS(&device5)));
     m_tlas.Create(device5, 1, FrameCount);
 
-    std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> indexBuffers;
     std::vector<D3D12_RAYTRACING_GEOMETRY_DESC> blas;
+
+#pragma pack(push,4)
+    struct MaterialConstants
+    {
+        UINT64 DescriptorTable;
+        UINT PrimitiveOffset;
+        UINT IndexStart;
+        UINT VertexBase;
+        UINT GeometryIndex;
+        UINT64 UAV;
+    };
+#pragma pack(pop)
+
+    struct MaterialRecord
+    {
+        std::wstring materialName;
+        MaterialConstants constants;
+    };
+
+    std::vector<MaterialRecord> shaderRecords;
 
     D3D12_RAYTRACING_GEOMETRY_DESC geom = {};
     geom.Type                                   = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
@@ -620,38 +674,41 @@ void D3D12Multithreading::LoadAssets()
     geom.Triangles.VertexCount                  = m_vertexBufferView.SizeInBytes / m_vertexBufferView.StrideInBytes;
     geom.Triangles.VertexFormat                 = DXGI_FORMAT_R32G32B32_FLOAT;
 
+    UINT32 primitiveIndex = 0;
+
+    D3D12_GPU_DESCRIPTOR_HANDLE cbvSrvHeapStart = m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart();
+    const UINT cbvSrvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    // create debug Uav
+    m_debug = CreateMapDefaultBuffer(m_device.Get(), 4096, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    void* pMappedDebug = nullptr;
+    m_debug->Map(0, nullptr, &pMappedDebug);
+
     for (int i = 0; i < _countof(SampleAssets::Draws); ++i)
     {
         SampleAssets::DrawParameters drawArgs = SampleAssets::Draws[i];
 
-        geom.Triangles.IndexCount  = drawArgs.IndexCount;
-        geom.Triangles.IndexBuffer = m_indexBufferView.BufferLocation + (drawArgs.IndexStart * sizeof(UINT32));
+        geom.Triangles.IndexCount   = drawArgs.IndexCount;
+        geom.Triangles.IndexBuffer  = m_indexBufferView.BufferLocation + (drawArgs.IndexStart * sizeof(UINT32));
 
-        /// todo: handle drawArgs.VertexBase
+        geom.Triangles.VertexBuffer.StartAddress =
+            m_vertexBufferView.BufferLocation + (drawArgs.VertexBase * m_vertexBufferView.StrideInBytes);
 
-        if (drawArgs.VertexBase != 0)
-        {
-            const size_t indexBufferSize = sizeof(UINT32) * drawArgs.IndexCount;
-            UINT32* pIndexData = reinterpret_cast<UINT32*>(malloc(indexBufferSize));
-            {
-                auto pIndexBuffer = CreateUploadBuffer(m_device.Get(), indexBufferSize);
+        MaterialRecord record;
+        record.materialName              = L"HitGroupNoMaterials";
+        record.constants.PrimitiveOffset = primitiveIndex;
+        record.constants.IndexStart = drawArgs.IndexStart;
+        record.constants.VertexBase = drawArgs.VertexBase;
+        record.constants.GeometryIndex = i;
+        record.constants.UAV = m_debug->GetGPUVirtualAddress();
 
-                // Override to temporary index buffer
-                geom.Triangles.IndexBuffer = pIndexBuffer->GetGPUVirtualAddress();
+        CD3DX12_GPU_DESCRIPTOR_HANDLE tableBase(cbvSrvHeapStart, 2 + drawArgs.DiffuseTextureIndex, cbvSrvDescriptorSize);
+        record.constants.DescriptorTable = tableBase.ptr;
 
-                UINT32* pMappedIndexData = nullptr;
-                ThrowIfFailed(pIndexBuffer->Map(0, nullptr, reinterpret_cast<void**>(&pMappedIndexData)));
+        shaderRecords.push_back(record);
 
-                UINT32* pSrcData = reinterpret_cast<UINT32*>(pAssetData + SampleAssets::IndexDataOffset);
-                for (uint32_t idx = 0; idx < drawArgs.IndexCount; ++idx)
-                {
-                    pMappedIndexData[idx] = pSrcData[drawArgs.IndexStart + idx] + drawArgs.VertexBase;
-                }
-
-                indexBuffers.emplace_back(pIndexBuffer);
-            }
-            free(pIndexData);
-        }
+        primitiveIndex += (drawArgs.IndexCount / 3);
 
         blas.emplace_back(geom);
     }
@@ -671,7 +728,7 @@ void D3D12Multithreading::LoadAssets()
     for (int i = 0; i < FrameCount; i++)
     {
         m_frameResources[i] = new FrameResource(m_device.Get(), m_pipelineState.Get(), m_pipelineStateShadowMap.Get(), m_dsvHeap.Get(), m_cbvSrvHeap.Get(), &m_viewport, i);
-        m_frameResources[i]->WriteConstantBuffers(&m_viewport, &m_camera, m_lightCameras, m_lights);
+        m_frameResources[i]->WriteConstantBuffers(&m_viewport, &m_camera, m_lightCameras, m_lights, TRUE);
     }
     m_currentFrameResourceIndex = 0;
     m_pCurrentFrameResource = m_frameResources[m_currentFrameResourceIndex];
@@ -702,12 +759,7 @@ void D3D12Multithreading::LoadAssets()
         WaitForSingleObject(m_fenceEvent, INFINITE);
     }
 
-    // clear temp buffers
-    indexBuffers.clear();
-
     // Load library
-    // auto raytracingLibrary = CD3DX12_SHADER_BYTECODE(RayTracingLibrary, sizeof(RayTracingLibrary));
-
     UINT librarySize = 0;
     UINT8* pLibraryData = NULL;
     ThrowIfFailed(ReadDataFromFile(GetAssetFullPath(L"RayTracingLibrary.cso").c_str(), &pLibraryData, &librarySize));
@@ -719,12 +771,12 @@ void D3D12Multithreading::LoadAssets()
     // Create raytracing state objects
     m_raytracingStateObject = std::make_unique<StateObject>();
     m_raytracingStateObject->SetGlobalRootSignature(m_rootSignatureCs);
-    m_raytracingStateObject->SetShaderConfig(sizeof(DirectX::XMFLOAT4), 8);
-    m_raytracingStateObject->SetPipelineConfig(1);
+    m_raytracingStateObject->SetShaderConfig(8, 8);
+    m_raytracingStateObject->SetPipelineConfig(2);
     m_raytracingStateObject->SetLibraryExport(raytracingLib, L"PrimaryRayGen");
-    m_raytracingStateObject->SetLibraryExport(raytracingLib, L"ClosestHitNoMaterials");
+    m_raytracingStateObject->SetLibraryExport(raytracingLib, L"ClosestHitNoMaterials", nullptr, m_rootSignatureCs.Get(), m_rootSignatureLocal.Get());
     m_raytracingStateObject->SetLibraryExport(raytracingLib, L"Miss");
-    m_raytracingStateObject->AddHitGroup(D3D12_HIT_GROUP_TYPE_TRIANGLES, L"HitGroupNoMaterial", L"ClosestHitNoMaterials");
+    m_raytracingStateObject->AddHitGroup(D3D12_HIT_GROUP_TYPE_TRIANGLES, L"HitGroupNoMaterials", L"ClosestHitNoMaterials");
     m_raytracingStateObject->Compile(device5);
 
     D3D12_DESCRIPTOR_HEAP_DESC csHeapDesc = {};
@@ -752,8 +804,11 @@ void D3D12Multithreading::LoadAssets()
     m_raygenTable->PushBack(L"PrimaryRayGen");
     m_raygenTable->Alloc(m_device.Get());
 
-    m_hitgroupTable = std::make_unique<ShaderRecordTable>(*m_raytracingStateObject.get(), 1);
-    m_hitgroupTable->PushBack(L"HitGroupNoMaterial");
+    m_hitgroupTable = std::make_unique<ShaderRecordTable>(*m_raytracingStateObject.get(), _countof(SampleAssets::Draws), sizeof(MaterialConstants));
+    for (auto record : shaderRecords)
+    {
+        m_hitgroupTable->PushBack(record.materialName.c_str(), &record.constants, sizeof(MaterialConstants));
+    }
     m_hitgroupTable->Alloc(m_device.Get());
 
     m_missTable = std::make_unique<ShaderRecordTable>(*m_raytracingStateObject.get(), 1);
@@ -874,7 +929,7 @@ void D3D12Multithreading::OnUpdate()
         }
     }
 
-    m_pCurrentFrameResource->WriteConstantBuffers(&m_viewport, &m_camera, m_lightCameras, m_lights);
+    m_pCurrentFrameResource->WriteConstantBuffers(&m_viewport, &m_camera, m_lightCameras, m_lights, m_enableShadows ? TRUE : FALSE);
 }
 
 // Render the scene.
@@ -1088,49 +1143,52 @@ void D3D12Multithreading::BeginFrame()
     m_pCurrentFrameResource->m_commandLists[CommandListPre]->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
     m_pCurrentFrameResource->m_commandLists[CommandListPre]->ClearDepthStencilView(m_dsvHeap->GetCPUDescriptorHandleForHeapStart(), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
-#if 1 // RayTracing
-    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList5> commandList5;
-    if (SUCCEEDED(m_pCurrentFrameResource->m_commandLists[CommandListPre]->QueryInterface(IID_PPV_ARGS(&commandList5))))
+    if (m_raytrace)
     {
-        ID3D12DescriptorHeap* ppHeaps[] = { m_cbvSrvHeapCs.Get(), m_samplerHeap.Get() };
-        commandList5->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
+        Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList5> commandList5;
+        if (SUCCEEDED(m_pCurrentFrameResource->m_commandLists[CommandListPre]->QueryInterface(IID_PPV_ARGS(&commandList5))))
+        {
+            ID3D12DescriptorHeap* ppHeaps[] = { m_cbvSrvHeapCs.Get(), m_samplerHeap.Get() };
+            commandList5->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
 
-        m_raytracingStateObject->Bind(commandList5);
+            m_raytracingStateObject->Bind(commandList5);
 
-        struct {
-            DirectX::XMFLOAT4 cameraPosition;
-            DirectX::XMMATRIX projectionToWorld;
-            DirectX::XMMATRIX cameraViewProjInverse;
-        } constants;
+            struct {
+                DirectX::XMFLOAT4 cameraPosition;
+                DirectX::XMMATRIX projectionToWorld;
+                DirectX::XMMATRIX cameraViewProjInverse;
+            } constants;
 
-        XMStoreFloat4(&constants.cameraPosition, m_camera.mEye);
+            XMStoreFloat4(&constants.cameraPosition, m_camera.mEye);
 
-        XMMATRIX view = XMMatrixLookAtRH(m_camera.mEye, m_camera.mAt, m_camera.mUp);
-        XMMATRIX proj = XMMatrixPerspectiveFovRH(XMConvertToRadians(90.0f), m_aspectRatio, 0.01f, 125.0f);
-        XMMATRIX viewProj = view * proj;
-        constants.projectionToWorld = XMMatrixTranspose(XMMatrixInverse(nullptr, viewProj));
-        commandList5->SetComputeRoot32BitConstants(0, 36, &constants, 0);
+            XMMATRIX view = XMMatrixLookAtRH(m_camera.mEye, m_camera.mAt, m_camera.mUp);
+            XMMATRIX proj = XMMatrixPerspectiveFovRH(XMConvertToRadians(90.0f), m_aspectRatio, 0.01f, 125.0f);
+            XMMATRIX viewProj = view * proj;
+            constants.projectionToWorld = XMMatrixTranspose(XMMatrixInverse(nullptr, viewProj));
+            commandList5->SetComputeRoot32BitConstants(0, 36, &constants, 0);
+            commandList5->SetComputeRootConstantBufferView(1, m_pCurrentFrameResource->GetSceneCbvHandle());
+            commandList5->SetComputeRootShaderResourceView(2, m_tlas.GetViewDesc()->RaytracingAccelerationStructure.Location);
+            commandList5->SetComputeRootShaderResourceView(3, m_vertexBufferView.BufferLocation);
+            commandList5->SetComputeRootShaderResourceView(4, m_indexBufferView.BufferLocation);
+            commandList5->SetComputeRootDescriptorTable(5, m_cbvSrvHeapCs->GetGPUDescriptorHandleForHeapStart());
 
-        commandList5->SetComputeRootShaderResourceView(1, m_tlas.GetViewDesc()->RaytracingAccelerationStructure.Location);
-        commandList5->SetComputeRootDescriptorTable(2, m_cbvSrvHeapCs->GetGPUDescriptorHandleForHeapStart());
+            D3D12_DISPATCH_RAYS_DESC desc = {};
+            desc.Width  = m_viewport.Width;
+            desc.Height = m_viewport.Height;
+            desc.Depth  = 1;
 
-        D3D12_DISPATCH_RAYS_DESC desc = {};
-        desc.Width  = m_viewport.Width;
-        desc.Height = m_viewport.Height;
-        desc.Depth  = 1;
+            desc.RayGenerationShaderRecord.StartAddress = m_raygenTable->GetGPUVirtualAddress();
+            desc.RayGenerationShaderRecord.SizeInBytes  = m_raygenTable->SizeInBytes();
+            desc.HitGroupTable.StartAddress             = m_hitgroupTable->GetGPUVirtualAddress();
+            desc.HitGroupTable.StrideInBytes            = m_hitgroupTable->StrideInBytes();
+            desc.HitGroupTable.SizeInBytes              = m_hitgroupTable->SizeInBytes();
+            desc.MissShaderTable.StartAddress           = m_missTable->GetGPUVirtualAddress();
+            desc.MissShaderTable.StrideInBytes          = m_missTable->StrideInBytes();
+            desc.MissShaderTable.SizeInBytes            = m_missTable->SizeInBytes();
 
-        desc.RayGenerationShaderRecord.StartAddress = m_raygenTable->GetGPUVirtualAddress();
-        desc.RayGenerationShaderRecord.SizeInBytes  = m_raygenTable->SizeInBytes();
-        desc.HitGroupTable.StartAddress             = m_hitgroupTable->GetGPUVirtualAddress();
-        desc.HitGroupTable.SizeInBytes              = m_hitgroupTable->StrideInBytes();
-        desc.HitGroupTable.StrideInBytes            = m_hitgroupTable->SizeInBytes();
-        desc.MissShaderTable.StartAddress           = m_missTable->GetGPUVirtualAddress();
-        desc.MissShaderTable.SizeInBytes            = m_missTable->SizeInBytes();
-        desc.HitGroupTable.SizeInBytes              = m_missTable->StrideInBytes();
-
-        commandList5->DispatchRays(&desc);
+            commandList5->DispatchRays(&desc);
+        }
     }
-#endif
 
     ThrowIfFailed(m_pCurrentFrameResource->m_commandLists[CommandListPre]->Close());
 }
@@ -1166,6 +1224,8 @@ void D3D12Multithreading::EndFrame()
     ImGui::Checkbox(label0, &m_vsync);
     const char* label1 = "Enable Ray Tracing";
     ImGui::Checkbox(label1, &m_raytrace);
+    const char* label2 = "Enable Shadows";
+    ImGui::Checkbox(label2, &m_enableShadows);
     ImGui::Text(cpu);
 
     ImGui::EndFrame();

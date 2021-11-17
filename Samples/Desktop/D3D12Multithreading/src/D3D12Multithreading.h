@@ -156,10 +156,13 @@ private:
     std::unique_ptr<ShaderRecordTable>  m_hitgroupTable;
     ComPtr<ID3D12Resource>              m_raytracingTarget;
     ComPtr<ID3D12RootSignature>         m_rootSignatureCs;
+    ComPtr<ID3D12RootSignature>         m_rootSignatureLocal;
     ComPtr<ID3D12DescriptorHeap>        m_cbvSrvHeapCs;
 
+    ComPtr<ID3D12Resource>              m_debug;
     bool m_vsync = true;
     bool m_raytrace = false;
+    bool m_enableShadows = true;
 
     ComPtr<ID3D12DescriptorHeap> m_imguiDescriptorHeap;
 };
