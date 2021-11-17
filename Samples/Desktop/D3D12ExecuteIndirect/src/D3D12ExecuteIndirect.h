@@ -1,4 +1,4 @@
-//*********************************************************
+        //*********************************************************
 //
 // Copyright (c) Microsoft. All rights reserved.
 // This code is licensed under the MIT License (MIT).
@@ -79,6 +79,14 @@ private:
         D3D12_DRAW_ARGUMENTS drawArguments;
     };
 
+    // Data structure to match the command signature used for ExecuteIndirect.
+    struct IndirectCommandCs
+    {
+        D3D12_GPU_VIRTUAL_ADDRESS cbv;
+        D3D12_DRAW_ARGUMENTS drawArguments; // bound as inline constants
+        D3D12_DISPATCH_ARGUMENTS dispatchArguments;
+    };
+
     // Graphics root signature parameter offsets.
     enum GraphicsRootParameters
     {
@@ -130,6 +138,8 @@ private:
     UINT m_rtvDescriptorSize;
     UINT m_cbvSrvUavDescriptorSize;
     UINT m_frameIndex;
+
+    ComPtr<ID3D12CommandSignature> m_commandSignatureCs;
 
     // Synchronization objects.
     ComPtr<ID3D12Fence> m_fence;

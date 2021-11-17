@@ -434,6 +434,26 @@ void D3D12ExecuteIndirect::LoadAssets()
         NAME_D3D12_OBJECT(m_commandSignature);
     }
 
+    // Create the command signature used for indirect drawing.
+    {
+        // Each command consists of a CBV update and a DrawInstanced call.
+        D3D12_INDIRECT_ARGUMENT_DESC argumentDescs[3] = {};
+        argumentDescs[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW;
+        argumentDescs[0].ConstantBufferView.RootParameterIndex = Cbv;
+        argumentDescs[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
+        argumentDescs[1].Constant.RootParameterIndex = 0;
+        argumentDescs[1].Constant.Num32BitValuesToSet = 4;
+        argumentDescs[2].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+        
+        D3D12_COMMAND_SIGNATURE_DESC commandSignatureDesc = {};
+        commandSignatureDesc.pArgumentDescs = argumentDescs;
+        commandSignatureDesc.NumArgumentDescs = _countof(argumentDescs);
+        commandSignatureDesc.ByteStride = sizeof(IndirectCommandCs);
+
+        ThrowIfFailed(m_device->CreateCommandSignature(&commandSignatureDesc, m_rootSignature.Get(), IID_PPV_ARGS(&m_commandSignatureCs)));
+        NAME_D3D12_OBJECT(m_commandSignatureCs);
+    }
+
     // Create the command buffers and UAVs to store the results of the compute work.
     {
         std::vector<IndirectCommand> commands;
@@ -620,6 +640,7 @@ void D3D12ExecuteIndirect::OnRender()
 
         // Execute the compute work.
         if (m_enableCulling)
+        {
         {
             PIXBeginEvent(m_commandQueue.Get(), 0, L"Cull invisible triangles");
 
